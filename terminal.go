@@ -185,6 +185,56 @@ func ParseSequences(ins string) string {
 	return ins
 }
 
+func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
+	var c *exec.Cmd
+	if args != "" {
+		aargs := strings.Split(args, " ")
+		c = exec.Command(cmd, aargs...)
+	} else {
+		c = exec.Command(cmd)
+	}
+	c.Env = os.Environ()
+
+	// cerr := c.Run()
+	out, _ := c.CombinedOutput()
+	/* if err != nil {
+		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Error: " + err.Error(),
+				// Flags:           0,
+
+			},
+		})
+		return
+	} */
+	// if cerr != nil {
+	// 	bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	// 		Type: discordgo.InteractionResponseChannelMessageWithSource,
+	// 		Data: &discordgo.InteractionResponseData{
+	// 			Content: "Execution error: " + err.Error(),
+	// 			// Flags:           0,
+
+	// 		},
+	// 	})
+	// }
+
+	bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "```ansi\n" + string(out) + "```",
+			// Flags:           0,
+
+		},
+	})
+	/* 	_, err := bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
+	   		Content: "```ansi\n" + string(out) + "```",
+	   	})
+	   	if err != nil {
+	   		bot.Session.ChannelMessageSend(i.ChannelID, "Cannot edit an interaction response: "+err.Error())
+	   	} */
+}
+
 func (term *DiscordTerminal) PTYUpdater() {
 	for term.Running {
 		data := make([]byte, 8192)
