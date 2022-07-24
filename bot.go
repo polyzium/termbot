@@ -12,15 +12,35 @@ const (
 	BOT_OWNERID = "552930095141224479" // Paste your userID here so the bot can only be used by you
 )
 
+type Prefs struct {
+	ActiveSession *DiscordTerminal
+
+	DefaultSharedUsers []string
+	Color              bool
+}
 type Bot struct {
 	Session   *discordgo.Session
 	Terminals []*DiscordTerminal
+	UserPrefs map[string]*Prefs
 }
 
-func (bot *Bot) Error(cid string, ierr error) {
-	_, err := bot.Session.ChannelMessageSend(cid, ierr.Error())
-	if err != nil {
-		log.Printf("Cannot send error message: %s", err.Error())
+func (bot *Bot) RespondError(i *discordgo.Interaction, err string) {
+	bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: err,
+			Flags:   uint64(discordgo.MessageFlagsEphemeral),
+		},
+	})
+}
+
+func (bot *Bot) CreatePrefIfNotExistsFor(user *discordgo.User) {
+	if _, ok := bot.UserPrefs[user.ID]; !ok {
+		bot.UserPrefs[user.ID] = &Prefs{
+			ActiveSession:      nil,
+			DefaultSharedUsers: []string{},
+			Color:              false,
+		}
 	}
 }
 
@@ -30,13 +50,15 @@ func (bot *Bot) MessageHandler(s *discordgo.Session, m *discordgo.MessageCreate)
 		return
 	}
 
+	bot.CreatePrefIfNotExistsFor(m.Author)
+
 	prefix := regexp.MustCompile(`^\` + BOT_PREFIX + `(.+)`)
 	msg := prefix.FindAllStringSubmatch(m.Content, -1) // No prefix shall be there
 	if msg != nil {
-		if m.Author.ID != BOT_OWNERID {
+		/* if !(m.Author.ID == BOT_OWNERID) {
 			bot.Session.ChannelMessageSend(m.ChannelID, "Insufficient permissions")
 			return
-		}
+		} */
 
 		/* if rm, _ := regexp.MatchString(`^\.\w+`, msg[0][1]); rm { // Command
 			cmd := strings.ReplaceAll(msg[0][1], ".", "") // Remove the dot, all commands start with the prefix+dot
@@ -44,39 +66,34 @@ func (bot *Bot) MessageHandler(s *discordgo.Session, m *discordgo.MessageCreate)
 			return
 		} else { // Terminal input */
 		instr := ParseSequences(msg[0][1])
-		for _, t := range bot.Terminals {
-			if t.Owner.ID == m.Author.ID {
-				t.Pty.WriteString(instr)                                           // Write message input to the terminal's pty
-				err := bot.Session.ChannelMessageDelete(m.ChannelID, m.Message.ID) // Remove user's command msg
-				if err != nil {
-					log.Printf("Cannot remove user command message: %s", err)
-				}
-				return
-			}
+		t := bot.UserPrefs[m.Author.ID].ActiveSession
+		if t == nil {
+			bot.Session.ChannelMessageSend(m.ChannelID, "No active session")
+			return
 		}
+		if m.ChannelID == t.Msg.ChannelID {
+			t.Pty.WriteString(instr) // Write message input to the terminal's pty
+		} else {
+			chn, _ := bot.Session.Channel(t.Msg.ChannelID)
+			bot.Session.ChannelMessageSend(m.ChannelID, "Your active session is in another channel ("+chn.Mention()+")")
+		}
+		err := bot.Session.ChannelMessageDelete(m.ChannelID, m.Message.ID) // Remove user's command msg
+		if err != nil {
+			log.Printf("Cannot remove user command message: %s", err)
+		}
+		return
 		//}
 	}
 }
 
 func (bot *Bot) InteractionHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Member.User.ID != BOT_OWNERID {
-		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Insufficient permissions",
-				Flags:   uint64(discordgo.MessageFlagsEphemeral),
-			},
-		})
-		return
-	}
+	bot.CreatePrefIfNotExistsFor(i.Member.User)
 
-	if i.Type == discordgo.InteractionApplicationCommand {
+	switch i.Type {
+	case discordgo.InteractionApplicationCommand:
 		bot.CommandHandler(i)
-		return
-	}
-	if i.Type == discordgo.InteractionMessageComponent {
+	case discordgo.InteractionMessageComponent:
 		bot.ComponentHandler(i)
-		return
 	}
 }
 
@@ -91,7 +108,7 @@ func (bot *Bot) Shutdown() {
 }
 
 func NewTerminalBot(token string) *Bot {
-	this := Bot{}
+	this := Bot{UserPrefs: make(map[string]*Prefs)}
 	sess, err := discordgo.New("Bot " + token)
 	if err != nil {
 		panic(err)

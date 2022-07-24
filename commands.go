@@ -1,21 +1,25 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/bwmarrin/discordgo"
 )
 
 func (bot *Bot) RegisterCommands() {
-	open := &discordgo.ApplicationCommand{
+	commands := make(map[string]*discordgo.ApplicationCommand)
+
+	commands["open"] = &discordgo.ApplicationCommand{
 		Name:        "open",
 		Type:        discordgo.ChatApplicationCommand,
 		Description: "Launches a new terminal",
 	}
-	macro := &discordgo.ApplicationCommand{
+	commands["macro"] = &discordgo.ApplicationCommand{
 		Name:        "macro",
 		Type:        discordgo.ChatApplicationCommand,
 		Description: "Takes input from a predefined macro",
 	}
-	exec := &discordgo.ApplicationCommand{
+	commands["exec"] = &discordgo.ApplicationCommand{
 		Name:        "exec",
 		Type:        discordgo.ChatApplicationCommand,
 		Description: "Executes a command",
@@ -34,10 +38,34 @@ func (bot *Bot) RegisterCommands() {
 			},
 		},
 	}
+	commands["share"] = &discordgo.ApplicationCommand{
+		Type:        discordgo.ChatApplicationCommand,
+		Name:        "share",
+		Description: "Share your active session with others, so they can control it",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionUser,
+				Name:        "user",
+				Description: "User to share the session with",
+				Required:    true,
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionBoolean,
+				Name:        "default",
+				Description: "Set as default for all future sessions?",
+				Required:    false,
+			},
+		},
+	}
+	commands["color"] = &discordgo.ApplicationCommand{
+		Type:        discordgo.ChatApplicationCommand,
+		Name:        "color",
+		Description: "EXPERIMENTAL! Enable or disable color. Don't forget to set your $TERM!",
+	}
 
-	bot.Session.ApplicationCommandCreate(bot.Session.State.User.ID, "", open)
-	bot.Session.ApplicationCommandCreate(bot.Session.State.User.ID, "", macro)
-	bot.Session.ApplicationCommandCreate(bot.Session.State.User.ID, "", exec)
+	for _, c := range commands {
+		bot.Session.ApplicationCommandCreate(bot.Session.State.User.ID, "", c)
+	}
 }
 
 func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
@@ -45,18 +73,17 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 
 	switch data.Name {
 	case "open":
-		for _, t := range bot.Terminals {
-			if t.Owner.ID == i.Member.User.ID {
-				bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: "Only one terminal per user allowed",
-						Flags:   uint64(discordgo.MessageFlagsEphemeral),
-					},
-				})
-				return
-			}
+		if i.Member.User.ID != BOT_OWNERID {
+			bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Insufficient permissions",
+					Flags:   uint64(discordgo.MessageFlagsEphemeral),
+				},
+			})
+			return
 		}
+
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -92,6 +119,64 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 			},
 		}) */
 		bot.Exec(i.Interaction, cmd, args)
+	case "share":
+		var user *discordgo.User
+		var defaultv bool = false
+		for _, o := range data.Options {
+			switch o.Name {
+			case "user":
+				user = o.UserValue(bot.Session)
+			case "default":
+				defaultv = o.BoolValue()
+			}
+		}
+		if bot.UserPrefs[i.Member.User.ID].ActiveSession == nil && !defaultv {
+			bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You don't have an active session!",
+					Flags:   uint64(discordgo.MessageFlagsEphemeral),
+				},
+			})
+			return
+		} else if bot.UserPrefs[i.Member.User.ID].ActiveSession != nil && i.Member.User.ID == bot.UserPrefs[i.Member.User.ID].ActiveSession.Owner.ID {
+			bot.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers = append(bot.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers, user.ID)
+		} else {
+			bot.RespondError(i.Interaction, "You are not allowed to share someone else's session")
+		}
+		if defaultv {
+			bot.UserPrefs[i.Member.User.ID].DefaultSharedUsers = append(bot.UserPrefs[i.Member.User.ID].DefaultSharedUsers, user.ID)
+		}
+		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				// Sucks that there's no ternary operator in Go
+				Content: "You have allowed " + user.Mention() + " to control your " + func(a bool) string {
+					if a {
+						return "current and future sessions"
+					} else {
+						return "current session"
+					}
+				}(defaultv),
+				Flags: uint64(discordgo.MessageFlagsEphemeral),
+			},
+		})
+	case "color":
+		bot.UserPrefs[i.Member.User.ID].Color = !bot.UserPrefs[i.Member.User.ID].Color
+		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				// Sucks that there's no ternary operator in Go
+				Content: "Color display has been " + func(a bool) string {
+					if a {
+						return "en"
+					} else {
+						return "dis"
+					}
+				}(bot.UserPrefs[i.Member.User.ID].Color) + "abled",
+				Flags: uint64(discordgo.MessageFlagsEphemeral),
+			},
+		})
 		/* default:
 		// bot.Session.ChannelMessageSend(m.ChannelID, "Unknown command")
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -110,22 +195,49 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 	switch data.CustomID {
 	case "here":
 		for _, t := range bot.Terminals {
-			if t.Owner.ID == i.Interaction.Member.User.ID {
-				bot.Session.ChannelMessageDelete(t.Msg.ChannelID, t.Msg.ID)
-				t.Msg, _ = bot.Session.ChannelMessageSendComplex(t.Msg.ChannelID, &discordgo.MessageSend{
-					Content:    t.Msg.Content,
-					Components: t.Msg.Components,
-				})
+			if t.Msg.ID == i.Message.ID {
+				if t.AllowedToControl(i.Member.User) {
+					bot.Session.ChannelMessageDelete(t.Msg.ChannelID, t.Msg.ID)
+					t.Msg, _ = bot.Session.ChannelMessageSendComplex(t.Msg.ChannelID, &discordgo.MessageSend{
+						Content:    t.Msg.Content,
+						Components: t.Msg.Components,
+						Embed:      t.Embed(),
+					})
+				} else {
+					bot.RespondError(i.Interaction, "You are not allowed to take control of this session")
+				}
 				return
 			}
 		}
 	case "close":
 		for _, t := range bot.Terminals {
-			if t.Owner.ID == i.Interaction.Member.User.ID {
-				t.Close()
-				/* bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseUpdateMessage,
-				}) */
+			if t.Msg.ID == i.Message.ID {
+				if t.AllowedToControl(i.Member.User) {
+					t.Close()
+					if bot.UserPrefs[i.Member.User.ID].ActiveSession == t {
+						bot.UserPrefs[i.Member.User.ID].ActiveSession = nil
+					}
+				} else {
+					bot.RespondError(i.Interaction, "You are not allowed to take control of this session")
+				}
+				return
+			}
+		}
+	case "active":
+		for _, t := range bot.Terminals {
+			if t.Msg.ID == i.Message.ID {
+				if t.AllowedToControl(i.Member.User) {
+					bot.UserPrefs[i.Member.User.ID].ActiveSession = t
+					bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "Set session ID " + fmt.Sprint(t.ID) + " as active",
+							Flags:   uint64(discordgo.MessageFlagsEphemeral),
+						},
+					})
+				} else {
+					bot.RespondError(i.Interaction, "You are not allowed to take control of this session")
+				}
 				return
 			}
 		}

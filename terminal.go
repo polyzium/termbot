@@ -1,9 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"log"
+	"math"
+	"math/rand"
 	"os"
 	"os/exec"
 	"regexp"
@@ -144,14 +145,38 @@ var (
 			OutSeq: "\x1b[6~",
 		},
 	}
+
+	buttons = []discordgo.MessageComponent{
+		&discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				&discordgo.Button{
+					Label:    "Set as active",
+					Style:    discordgo.PrimaryButton,
+					CustomID: "active",
+				},
+				&discordgo.Button{
+					Label:    "Move down",
+					Style:    discordgo.SecondaryButton,
+					CustomID: "here",
+				},
+				&discordgo.Button{
+					Label:    "Close",
+					Style:    discordgo.DangerButton,
+					CustomID: "close",
+				}},
+		},
+	}
 )
 
 type DiscordTerminal struct {
+	ID      int
 	Running bool
 
 	Bot *Bot
 
-	Owner *discordgo.User
+	Owner       *discordgo.User
+	SharedUsers []string
+	CloseSignal chan bool
 
 	Msg           *discordgo.Message
 	Pty           *os.File
@@ -160,15 +185,20 @@ type DiscordTerminal struct {
 	LastScreen    string
 }
 
+func (term *DiscordTerminal) AllowedToControl(user *discordgo.User) bool {
+	if user.ID == term.Owner.ID {
+		return true
+	}
+	if slices.Index(term.SharedUsers, user.ID) != -1 {
+		return true
+	}
+	return false
+}
+
 type Key struct {
 	Name   string
 	InSeq  string
 	OutSeq string
-}
-
-// discordgo is fucking retarded in this regard, why the fuck do you need a string pointer???
-func StringPointer(str string) *string {
-	return &str
 }
 
 func ParseSequences(ins string) string {
@@ -183,6 +213,44 @@ func ParseSequences(ins string) string {
 		ins = strings.ReplaceAll(ins, k.InSeq, k.OutSeq)
 	}
 	return ins
+}
+
+func StringANSI(t vt10x.Terminal) string {
+	t.Lock()
+	defer t.Unlock()
+
+	var view []rune
+	cols, rows := t.Size()
+	var prevcolorfg vt10x.Color = 0
+	var prevcolorbg vt10x.Color = 0
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			attr := t.Cell(x, y)
+			if attr.FG != prevcolorfg {
+				if attr.FG == vt10x.DefaultFG {
+					view = append(view, []rune("\x1b[39m")...)
+				} else {
+					view = append(view, []rune(fmt.Sprintf("\x1b[%dm", 30+attr.FG%8))...)
+				}
+			}
+			if attr.BG != prevcolorbg {
+				if attr.BG == vt10x.DefaultBG {
+					view = append(view, []rune("\x1b[49m")...)
+				} else {
+					view = append(view, []rune(fmt.Sprintf("\x1b[%dm", 40+attr.BG%8))...)
+				}
+			}
+			view = append(view, attr.Char)
+			prevcolorfg = attr.FG
+			prevcolorbg = attr.BG
+		}
+		view = append(view, '\n')
+	}
+
+	view = []rune(regexp.MustCompile("(?m) +$").ReplaceAllString(string(view), ""))
+	view = []rune(strings.ReplaceAll(string(view), "    ", "\t"))
+
+	return string(view)
 }
 
 func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
@@ -240,34 +308,49 @@ func (term *DiscordTerminal) PTYUpdater() {
 		data := make([]byte, 8192)
 		_, err := term.Pty.Read(data)
 		if err != nil {
-			term.Bot.Session.ChannelMessageDelete(term.Msg.ChannelID, term.Msg.ID)
+			// term.Bot.Session.ChannelMessageDelete(term.Msg.ChannelID, term.Msg.ID)
 			term.Running = false
 			return
 		}
 		term.Term.Write(data)
-		//fmt.Printf("%v\r", term.String())
-		term.CurrentScreen = term.Term.String()
-		if bytes.Contains(data, []byte("\a")) { // Check for \a aka \x07 (BEL)
-			term.Bot.Session.ChannelMessageSend(term.Msg.ChannelID, fmt.Sprintf("<@%s> BEL", term.Owner.ID))
+		if term.Bot.UserPrefs[term.Owner.ID].Color {
+			term.CurrentScreen = StringANSI(term.Term)
+		} else {
+			term.CurrentScreen = term.Term.String()
 		}
+		/* if bytes.Contains(data, []byte("\a")) { // Check for \a aka \x07 (BEL)
+			term.Bot.Session.ChannelMessageSend(term.Msg.ChannelID, fmt.Sprintf("<@%s> BEL", term.Owner.ID))
+		} */
 	}
 }
 
 func (term *DiscordTerminal) ScreenUpdater() {
-	var err error
 	for term.Running {
 		if term.CurrentScreen != term.LastScreen {
 			// term.Msg, err = term.Bot.Session.ChannelMessageEdit(term.Msg.ChannelID, term.Msg.ID, "```\n"+term.CurrentScreen+"```")
-			msgcontent := "```\n" + term.CurrentScreen + "```"
-			term.Msg, err = term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+			msgcontent := "```ansi\n" + term.CurrentScreen + "```"
+			err2k := "Oops! Looks like you've reached Discord's 2000 character limit.\nDon't worry, your terminal is still running.\n\nTry disabling colors, and it'll be back."
+			var newmsg *discordgo.Message
+			newmsg, err := term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
 				Content:    &msgcontent,
-				Components: term.Msg.Components,
+				Components: buttons,
+				Embed:      term.Embed(),
 				ID:         term.Msg.ID,
 				Channel:    term.Msg.ChannelID,
 			})
 			if err != nil {
-				log.Printf("Cannot update terminal: %s", err)
+				newmsg, err = term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+					Content:    &err2k,
+					Components: buttons,
+					Embed:      term.Embed(),
+					ID:         term.Msg.ID,
+					Channel:    term.Msg.ChannelID,
+				})
+				if err != nil {
+					log.Printf("Cannot send an error message: %s", err)
+				}
 			}
+			term.Msg = newmsg
 			term.LastScreen = term.CurrentScreen
 		}
 		time.Sleep(2 * time.Second)
@@ -280,11 +363,50 @@ func (term *DiscordTerminal) Close() {
 		term.Bot.Session.ChannelMessageSend(term.Msg.ChannelID, "Error closing pty: "+err.Error())
 	}
 	term.Running = false
+	<-term.CloseSignal
+}
+
+func (term *DiscordTerminal) FormatControlledBy() string {
+	out := ""
+	for uid, p := range term.Bot.UserPrefs {
+		if p.ActiveSession == term {
+			if out == "" {
+				out += "<@" + uid + ">"
+			} else {
+				out += ", <@" + uid + ">"
+			}
+		}
+	}
+	if out == "" {
+		return "None"
+	}
+	return out
+}
+
+func (term *DiscordTerminal) Embed() *discordgo.MessageEmbed {
+	return &discordgo.MessageEmbed{
+		Type:        discordgo.EmbedTypeRich,
+		Title:       "Session ID " + fmt.Sprint(term.ID),
+		Description: term.Term.Title(),
+		Color:       0x00FFFF,
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "Owner",
+				Value:  term.Owner.Mention(),
+				Inline: false,
+			},
+			{
+				Name:   "Controlled by",
+				Value:  term.FormatControlledBy(),
+				Inline: false,
+			},
+		},
+	}
 }
 
 func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	var err error
-	this := &DiscordTerminal{Bot: bot, Owner: owner}
+	this := &DiscordTerminal{Bot: bot, Owner: owner, CloseSignal: make(chan bool), SharedUsers: bot.UserPrefs[owner.ID].DefaultSharedUsers, ID: int(math.Floor(100000 + rand.Float64()*900000))}
 
 	this.Term = vt10x.New(vt10x.WithSize(W, H))
 	c := exec.Command(os.Getenv("SHELL"))
@@ -297,33 +419,18 @@ func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	}
 
 	this.Msg, err = this.Bot.Session.ChannelMessageSendComplex(cid, &discordgo.MessageSend{
-		Content: "Waiting for pty...",
-		Components: []discordgo.MessageComponent{
-			&discordgo.ActionsRow{
-				Components: []discordgo.MessageComponent{
-					&discordgo.Button{
-						Label:    "Move down",
-						Style:    discordgo.PrimaryButton,
-						CustomID: "here",
-					},
-					/* &discordgo.Button{
-						Label:    "Show keys",
-						Style:    discordgo.SecondaryButton,
-						CustomID: "keys",
-					}, */
-					&discordgo.Button{
-						Label:    "Close",
-						Style:    discordgo.DangerButton,
-						CustomID: "close",
-					}},
-			},
-		},
+		Content:    "Waiting for pty...",
+		Components: buttons,
+		Embed:      this.Embed(),
 	})
 	if err != nil {
 		log.Println("Unable to create message for terminal: " + err.Error())
+		this.Pty.Close()
+		return
 	}
 	bot.Terminals = append(bot.Terminals, this)
 	this.Running = true
+	bot.UserPrefs[owner.ID].ActiveSession = this
 
 	go this.PTYUpdater()
 	this.ScreenUpdater()
@@ -334,5 +441,8 @@ func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	}
 	bot.Terminals[idx] = bot.Terminals[len(bot.Terminals)-1]
 	bot.Terminals = bot.Terminals[:len(bot.Terminals)-1]
-	bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{Content: StringPointer("Terminal closed"), Components: []discordgo.MessageComponent{}, Channel: this.Msg.ChannelID, ID: this.Msg.ID})
+	// closedstr := "Terminal closed"
+	// bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{Content: &closedstr, Components: []discordgo.MessageComponent{}, Channel: this.Msg.ChannelID, ID: this.Msg.ID})
+	bot.Session.ChannelMessageDelete(this.Msg.ChannelID, this.Msg.ID)
+	this.CloseSignal <- true
 }
