@@ -1,0 +1,10 @@
+macros:
+    - name: example
+      in: Here's an example macro.
+      whitelist: false
+      allowedids: []
+userprefs:
+    "552930095141224479":
+        defaultsharedusers:
+            - "216836179415269376"
+        color: false

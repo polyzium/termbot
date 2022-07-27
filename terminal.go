@@ -303,6 +303,43 @@ func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
 	   	} */
 }
 
+func (bot *Bot) Macro(i *discordgo.Interaction, name string) {
+	if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession == nil {
+		bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "You don't have an active session!",
+				Flags:   uint64(discordgo.MessageFlagsEphemeral),
+			},
+		})
+		return
+	}
+	for _, m := range bot.Config.Macros {
+		if m.Name == name {
+			if !m.Whitelist || (m.Whitelist && slices.Contains(m.AllowedIDs, i.Member.User.ID)) {
+				bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.Pty.WriteString(m.In)
+				bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Executed macro " + m.Name,
+						Flags:   uint64(discordgo.MessageFlagsEphemeral),
+					},
+				})
+			} else {
+				bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You cannot use this macro!",
+						Flags:   uint64(discordgo.MessageFlagsEphemeral),
+					},
+				})
+			}
+			return
+		}
+	}
+	bot.RespondError(i, "No such macro")
+}
+
 func (term *DiscordTerminal) PTYUpdater() {
 	for term.Running {
 		data := make([]byte, 8192)
@@ -313,7 +350,7 @@ func (term *DiscordTerminal) PTYUpdater() {
 			return
 		}
 		term.Term.Write(data)
-		if term.Bot.UserPrefs[term.Owner.ID].Color {
+		if term.Bot.Config.UserPrefs[term.Owner.ID].Color {
 			term.CurrentScreen = StringANSI(term.Term)
 		} else {
 			term.CurrentScreen = term.Term.String()
@@ -350,7 +387,9 @@ func (term *DiscordTerminal) ScreenUpdater() {
 					log.Printf("Cannot send an error message: %s", err)
 				}
 			}
-			term.Msg = newmsg
+			if newmsg != nil {
+				term.Msg = newmsg
+			}
 			term.LastScreen = term.CurrentScreen
 		}
 		time.Sleep(2 * time.Second)
@@ -368,7 +407,7 @@ func (term *DiscordTerminal) Close() {
 
 func (term *DiscordTerminal) FormatControlledBy() string {
 	out := ""
-	for uid, p := range term.Bot.UserPrefs {
+	for uid, p := range term.Bot.Config.UserPrefs {
 		if p.ActiveSession == term {
 			if out == "" {
 				out += "<@" + uid + ">"
@@ -406,7 +445,7 @@ func (term *DiscordTerminal) Embed() *discordgo.MessageEmbed {
 
 func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	var err error
-	this := &DiscordTerminal{Bot: bot, Owner: owner, CloseSignal: make(chan bool), SharedUsers: bot.UserPrefs[owner.ID].DefaultSharedUsers, ID: int(math.Floor(100000 + rand.Float64()*900000))}
+	this := &DiscordTerminal{Bot: bot, Owner: owner, CloseSignal: make(chan bool), SharedUsers: bot.Config.UserPrefs[owner.ID].DefaultSharedUsers, ID: int(math.Floor(100000 + rand.Float64()*900000))}
 
 	this.Term = vt10x.New(vt10x.WithSize(W, H))
 	c := exec.Command(os.Getenv("SHELL"))
@@ -430,7 +469,7 @@ func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	}
 	bot.Terminals = append(bot.Terminals, this)
 	this.Running = true
-	bot.UserPrefs[owner.ID].ActiveSession = this
+	bot.Config.UserPrefs[owner.ID].ActiveSession = this
 
 	go this.PTYUpdater()
 	this.ScreenUpdater()

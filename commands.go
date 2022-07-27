@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
+	"golang.org/x/exp/slices"
 )
 
 func (bot *Bot) RegisterCommands() {
@@ -17,7 +18,15 @@ func (bot *Bot) RegisterCommands() {
 	commands["macro"] = &discordgo.ApplicationCommand{
 		Name:        "macro",
 		Type:        discordgo.ChatApplicationCommand,
-		Description: "Takes input from a predefined macro",
+		Description: "Executes a predefined macro",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "name",
+				Description: "Name of the macro to be executed",
+				Required:    true,
+			},
+		},
 	}
 	commands["exec"] = &discordgo.ApplicationCommand{
 		Name:        "exec",
@@ -93,13 +102,15 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 		})
 		NewDiscordTerminal(bot, i.ChannelID, i.Member.User)
 	case "macro":
-		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Not implemented",
-				Flags:   uint64(discordgo.MessageFlagsEphemeral),
-			},
-		})
+		var name string
+		for _, o := range data.Options {
+			switch o.Name {
+			case "name":
+				name = o.StringValue()
+			}
+		}
+
+		bot.Macro(i.Interaction, name)
 	case "exec":
 		var cmd string
 		var args string
@@ -130,7 +141,9 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 				defaultv = o.BoolValue()
 			}
 		}
-		if bot.UserPrefs[i.Member.User.ID].ActiveSession == nil && !defaultv {
+
+		// TODO: Rewrite this fucking mess
+		if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession == nil && !defaultv {
 			bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
@@ -139,13 +152,30 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 				},
 			})
 			return
-		} else if bot.UserPrefs[i.Member.User.ID].ActiveSession != nil && i.Member.User.ID == bot.UserPrefs[i.Member.User.ID].ActiveSession.Owner.ID {
-			bot.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers = append(bot.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers, user.ID)
+		} else if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession != nil && i.Member.User.ID == bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.Owner.ID {
+			bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers = append(bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers, user.ID)
+		} else if defaultv {
+			if slices.Contains(bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers, user.ID) {
+				bot.RespondError(i.Interaction, "Already shared!")
+				return
+			} else {
+				bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers = append(bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers, user.ID)
+
+				bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You have allowed " + user.Mention() + " to control your future sessions",
+						// Flags:   uint64(discordgo.MessageFlagsEphemeral),
+					},
+				})
+				return
+			}
 		} else {
 			bot.RespondError(i.Interaction, "You are not allowed to share someone else's session")
+			return
 		}
 		if defaultv {
-			bot.UserPrefs[i.Member.User.ID].DefaultSharedUsers = append(bot.UserPrefs[i.Member.User.ID].DefaultSharedUsers, user.ID)
+			bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers = append(bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers, user.ID)
 		}
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -158,11 +188,11 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 						return "current session"
 					}
 				}(defaultv),
-				Flags: uint64(discordgo.MessageFlagsEphemeral),
+				// Flags: uint64(discordgo.MessageFlagsEphemeral),
 			},
 		})
 	case "color":
-		bot.UserPrefs[i.Member.User.ID].Color = !bot.UserPrefs[i.Member.User.ID].Color
+		bot.Config.UserPrefs[i.Member.User.ID].Color = !bot.Config.UserPrefs[i.Member.User.ID].Color
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -173,7 +203,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 					} else {
 						return "dis"
 					}
-				}(bot.UserPrefs[i.Member.User.ID].Color) + "abled",
+				}(bot.Config.UserPrefs[i.Member.User.ID].Color) + "abled",
 				Flags: uint64(discordgo.MessageFlagsEphemeral),
 			},
 		})
@@ -214,8 +244,8 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 			if t.Msg.ID == i.Message.ID {
 				if t.AllowedToControl(i.Member.User) {
 					t.Close()
-					if bot.UserPrefs[i.Member.User.ID].ActiveSession == t {
-						bot.UserPrefs[i.Member.User.ID].ActiveSession = nil
+					if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession == t {
+						bot.Config.UserPrefs[i.Member.User.ID].ActiveSession = nil
 					}
 				} else {
 					bot.RespondError(i.Interaction, "You are not allowed to take control of this session")
@@ -227,7 +257,7 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 		for _, t := range bot.Terminals {
 			if t.Msg.ID == i.Message.ID {
 				if t.AllowedToControl(i.Member.User) {
-					bot.UserPrefs[i.Member.User.ID].ActiveSession = t
+					bot.Config.UserPrefs[i.Member.User.ID].ActiveSession = t
 					bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionResponseData{

@@ -2,9 +2,11 @@ package main
 
 import (
 	"log"
+	"os"
 	"regexp"
 
 	"github.com/bwmarrin/discordgo"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -13,15 +15,28 @@ const (
 )
 
 type Prefs struct {
-	ActiveSession *DiscordTerminal
+	ActiveSession *DiscordTerminal `yaml:"-"`
 
-	DefaultSharedUsers []string
-	Color              bool
+	DefaultSharedUsers []string `yaml:"defaultsharedusers"`
+	Color              bool     `yaml:"color"`
+}
+
+type Macro struct {
+	Name       string   `yaml:"name"`
+	In         string   `yaml:"in"`
+	Whitelist  bool     `yaml:"whitelist"`
+	AllowedIDs []string `yaml:"allowedids"`
+}
+
+type Config struct {
+	Macros    []Macro `yaml:"macros"`
+	UserPrefs map[string]*Prefs
 }
 type Bot struct {
+	Config Config
+
 	Session   *discordgo.Session
 	Terminals []*DiscordTerminal
-	UserPrefs map[string]*Prefs
 }
 
 func (bot *Bot) RespondError(i *discordgo.Interaction, err string) {
@@ -35,8 +50,8 @@ func (bot *Bot) RespondError(i *discordgo.Interaction, err string) {
 }
 
 func (bot *Bot) CreatePrefIfNotExistsFor(user *discordgo.User) {
-	if _, ok := bot.UserPrefs[user.ID]; !ok {
-		bot.UserPrefs[user.ID] = &Prefs{
+	if _, ok := bot.Config.UserPrefs[user.ID]; !ok {
+		bot.Config.UserPrefs[user.ID] = &Prefs{
 			ActiveSession:      nil,
 			DefaultSharedUsers: []string{},
 			Color:              false,
@@ -66,7 +81,7 @@ func (bot *Bot) MessageHandler(s *discordgo.Session, m *discordgo.MessageCreate)
 			return
 		} else { // Terminal input */
 		instr := ParseSequences(msg[0][1])
-		t := bot.UserPrefs[m.Author.ID].ActiveSession
+		t := bot.Config.UserPrefs[m.Author.ID].ActiveSession
 		if t == nil {
 			bot.Session.ChannelMessageSend(m.ChannelID, "No active session")
 			return
@@ -103,12 +118,36 @@ func (bot *Bot) Shutdown() {
 	}
 	err := bot.Session.Close()
 	if err != nil {
-		log.Printf("Cannot shutdown bot: %s", err)
+		log.Panicf("Cannot shutdown bot: %s", err)
+	}
+
+	yamlconf, err := yaml.Marshal(bot.Config)
+	if err != nil {
+		log.Panicf("Cannot generate YAML: %s", err)
+	}
+	f, err := os.OpenFile("config.yaml", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Panicf("Cannot open config file: %s", err)
+	}
+	_, err = f.Write(yamlconf)
+	if err != nil {
+		log.Panicf("Cannot save config file: %s", err)
 	}
 }
 
 func NewTerminalBot(token string) *Bot {
-	this := Bot{UserPrefs: make(map[string]*Prefs)}
+	config := Config{
+		UserPrefs: make(map[string]*Prefs),
+	}
+	conf, err := os.ReadFile("config.yaml")
+	if err != nil {
+		panic(err)
+	}
+	if err := yaml.Unmarshal(conf, &config); err != nil {
+		panic(err)
+	}
+
+	this := Bot{Config: config}
 	sess, err := discordgo.New("Bot " + token)
 	if err != nil {
 		panic(err)
