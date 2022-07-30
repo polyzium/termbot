@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/bwmarrin/discordgo"
 	"golang.org/x/exp/slices"
@@ -71,18 +72,33 @@ func (bot *Bot) RegisterCommands() {
 		Name:        "color",
 		Description: "EXPERIMENTAL! Enable or disable color. Don't forget to set your $TERM!",
 	}
+	commands["interactive"] = &discordgo.ApplicationCommand{
+		Type:        discordgo.ChatApplicationCommand,
+		Name:        "interactive",
+		Description: "Enable or disable interactive mode. When enabled, you can use your terminal without a prefix.",
+	}
+	commands["autosubmit"] = &discordgo.ApplicationCommand{
+		Type:        discordgo.ChatApplicationCommand,
+		Name:        "autosubmit",
+		Description: "Enable or disable autosubmit mode. When enabled, the bot will automatically do an Enter keypress.",
+	}
 
 	for _, c := range commands {
-		bot.Session.ApplicationCommandCreate(bot.Session.State.User.ID, "", c)
+		_, err := bot.Session.ApplicationCommandCreate(bot.Session.State.User.ID, "", c)
+		if err != nil {
+			log.Panicf("Cannot register command %s: %s", c.Name, err)
+		}
 	}
 }
 
 func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 
+	log.Printf("User %s executed %s", i.Member.User.String(), data.Name)
+
 	switch data.Name {
 	case "open":
-		if i.Member.User.ID != BOT_OWNERID {
+		if !(i.Member.User.ID == bot.Config.OwnerID || i.Member.User.ID == "684471165884039243" || i.Member.User.ID == "216836179415269376") {
 			bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
@@ -193,6 +209,9 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 		})
 	case "color":
 		bot.Config.UserPrefs[i.Member.User.ID].Color = !bot.Config.UserPrefs[i.Member.User.ID].Color
+		if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession != nil {
+			bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.ScheduledForUpdate = true
+		}
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -207,15 +226,38 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 				Flags: uint64(discordgo.MessageFlagsEphemeral),
 			},
 		})
-		/* default:
-		// bot.Session.ChannelMessageSend(m.ChannelID, "Unknown command")
+	case "interactive":
+		bot.Config.UserPrefs[i.Member.User.ID].Interactive = !bot.Config.UserPrefs[i.Member.User.ID].Interactive
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "Unknown interaction " + data.Name,
-				Flags:   uint64(discordgo.MessageFlagsEphemeral),
+				// Sucks that there's no ternary operator in Go
+				Content: "Interactive mode has been " + func(a bool) string {
+					if a {
+						return "en"
+					} else {
+						return "dis"
+					}
+				}(bot.Config.UserPrefs[i.Member.User.ID].Interactive) + "abled",
+				Flags: uint64(discordgo.MessageFlagsEphemeral),
 			},
-		}) */
+		})
+	case "autosubmit":
+		bot.Config.UserPrefs[i.Member.User.ID].AutoSubmit = !bot.Config.UserPrefs[i.Member.User.ID].AutoSubmit
+		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				// Sucks that there's no ternary operator in Go
+				Content: "Autosubmit mode has been " + func(a bool) string {
+					if a {
+						return "en"
+					} else {
+						return "dis"
+					}
+				}(bot.Config.UserPrefs[i.Member.User.ID].AutoSubmit) + "abled",
+				Flags: uint64(discordgo.MessageFlagsEphemeral),
+			},
+		})
 	}
 }
 
@@ -258,6 +300,7 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 			if t.Msg.ID == i.Message.ID {
 				if t.AllowedToControl(i.Member.User) {
 					bot.Config.UserPrefs[i.Member.User.ID].ActiveSession = t
+					t.ScheduledForUpdate = true
 					bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionResponseData{

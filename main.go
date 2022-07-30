@@ -14,7 +14,7 @@ const (
 
 func main() {
 	log.Println("Starting termbot")
-	bot := NewTerminalBot("YOUR TOKEN HERE")
+	bot := NewTerminalBot()
 	log.Println("Bot up")
 
 	sc := make(chan os.Signal, 1)

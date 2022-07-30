@@ -9,16 +9,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	BOT_PREFIX  = "$"
-	BOT_OWNERID = "552930095141224479" // Paste your userID here so the bot can only be used by you
-)
-
 type Prefs struct {
 	ActiveSession *DiscordTerminal `yaml:"-"`
 
 	DefaultSharedUsers []string `yaml:"defaultsharedusers"`
 	Color              bool     `yaml:"color"`
+	Interactive        bool     `yaml:"interactive"`
+	AutoSubmit         bool     `yaml:"autosubmit"`
 }
 
 type Macro struct {
@@ -29,8 +26,11 @@ type Macro struct {
 }
 
 type Config struct {
-	Macros    []Macro `yaml:"macros"`
-	UserPrefs map[string]*Prefs
+	Token     string            `yaml:"token"`
+	Prefix    string            `yaml:"prefix"`
+	OwnerID   string            `yaml:"ownerid"`
+	Macros    []Macro           `yaml:"macros"`
+	UserPrefs map[string]*Prefs `yaml:"userprefs"`
 }
 type Bot struct {
 	Config Config
@@ -55,6 +55,8 @@ func (bot *Bot) CreatePrefIfNotExistsFor(user *discordgo.User) {
 			ActiveSession:      nil,
 			DefaultSharedUsers: []string{},
 			Color:              false,
+			Interactive:        false,
+			AutoSubmit:         false,
 		}
 	}
 }
@@ -67,28 +69,34 @@ func (bot *Bot) MessageHandler(s *discordgo.Session, m *discordgo.MessageCreate)
 
 	bot.CreatePrefIfNotExistsFor(m.Author)
 
-	prefix := regexp.MustCompile(`^\` + BOT_PREFIX + `(.+)`)
-	msg := prefix.FindAllStringSubmatch(m.Content, -1) // No prefix shall be there
+	msg := [][]string{{"", ""}}
+	if !bot.Config.UserPrefs[m.Author.ID].Interactive {
+		prefix := regexp.MustCompile(`^\` + bot.Config.Prefix + `(.+)`)
+		msg = prefix.FindAllStringSubmatch(m.Content, -1) // No prefix shall be there
+	} else {
+		msg[0][1] = m.Content
+	}
 	if msg != nil {
-		/* if !(m.Author.ID == BOT_OWNERID) {
-			bot.Session.ChannelMessageSend(m.ChannelID, "Insufficient permissions")
-			return
-		} */
-
-		/* if rm, _ := regexp.MatchString(`^\.\w+`, msg[0][1]); rm { // Command
-			cmd := strings.ReplaceAll(msg[0][1], ".", "") // Remove the dot, all commands start with the prefix+dot
-			bot.CommandHandler(m, cmd)
-			return
-		} else { // Terminal input */
 		instr := ParseSequences(msg[0][1])
 		t := bot.Config.UserPrefs[m.Author.ID].ActiveSession
 		if t == nil {
+			if bot.Config.UserPrefs[m.Author.ID].Interactive {
+				// Ignore other channels
+				return
+			}
 			bot.Session.ChannelMessageSend(m.ChannelID, "No active session")
 			return
 		}
 		if m.ChannelID == t.Msg.ChannelID {
+			if bot.Config.UserPrefs[m.Author.ID].AutoSubmit {
+				instr += "\r"
+			}
 			t.Pty.WriteString(instr) // Write message input to the terminal's pty
 		} else {
+			if bot.Config.UserPrefs[m.Author.ID].Interactive {
+				// Ignore other channels
+				return
+			}
 			chn, _ := bot.Session.Channel(t.Msg.ChannelID)
 			bot.Session.ChannelMessageSend(m.ChannelID, "Your active session is in another channel ("+chn.Mention()+")")
 		}
@@ -97,7 +105,6 @@ func (bot *Bot) MessageHandler(s *discordgo.Session, m *discordgo.MessageCreate)
 			log.Printf("Cannot remove user command message: %s", err)
 		}
 		return
-		//}
 	}
 }
 
@@ -135,7 +142,7 @@ func (bot *Bot) Shutdown() {
 	}
 }
 
-func NewTerminalBot(token string) *Bot {
+func NewTerminalBot() *Bot {
 	config := Config{
 		UserPrefs: make(map[string]*Prefs),
 	}
@@ -148,7 +155,7 @@ func NewTerminalBot(token string) *Bot {
 	}
 
 	this := Bot{Config: config}
-	sess, err := discordgo.New("Bot " + token)
+	sess, err := discordgo.New("Bot " + config.Token)
 	if err != nil {
 		panic(err)
 	}
@@ -162,6 +169,11 @@ func NewTerminalBot(token string) *Bot {
 		panic(err)
 	}
 	this.RegisterCommands()
+
+	for uid := range this.Config.UserPrefs {
+		u, _ := this.Session.User(uid)
+		log.Println("Loaded preferences for " + u.String())
+	}
 
 	return &this
 }

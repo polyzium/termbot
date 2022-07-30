@@ -169,8 +169,9 @@ var (
 )
 
 type DiscordTerminal struct {
-	ID      int
-	Running bool
+	ID                 int
+	Running            bool
+	ScheduledForUpdate bool
 
 	Bot *Bot
 
@@ -291,8 +292,6 @@ func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "```ansi\n" + string(out) + "```",
-			// Flags:           0,
-
 		},
 	})
 	/* 	_, err := bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
@@ -363,7 +362,7 @@ func (term *DiscordTerminal) PTYUpdater() {
 
 func (term *DiscordTerminal) ScreenUpdater() {
 	for term.Running {
-		if term.CurrentScreen != term.LastScreen {
+		if term.CurrentScreen != term.LastScreen || term.ScheduledForUpdate {
 			// term.Msg, err = term.Bot.Session.ChannelMessageEdit(term.Msg.ChannelID, term.Msg.ID, "```\n"+term.CurrentScreen+"```")
 			msgcontent := "```ansi\n" + term.CurrentScreen + "```"
 			err2k := "Oops! Looks like you've reached Discord's 2000 character limit.\nDon't worry, your terminal is still running.\n\nTry disabling colors, and it'll be back."
@@ -391,6 +390,7 @@ func (term *DiscordTerminal) ScreenUpdater() {
 				term.Msg = newmsg
 			}
 			term.LastScreen = term.CurrentScreen
+			term.ScheduledForUpdate = false
 		}
 		time.Sleep(2 * time.Second)
 	}
