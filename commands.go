@@ -70,17 +70,17 @@ func (bot *Bot) RegisterCommands() {
 	commands["color"] = &discordgo.ApplicationCommand{
 		Type:        discordgo.ChatApplicationCommand,
 		Name:        "color",
-		Description: "EXPERIMENTAL! Enable or disable color. Don't forget to set your $TERM!",
+		Description: "EXPERIMENTAL! Toggle color. Don't forget to set your $TERM!",
 	}
 	commands["interactive"] = &discordgo.ApplicationCommand{
 		Type:        discordgo.ChatApplicationCommand,
 		Name:        "interactive",
-		Description: "Enable or disable interactive mode. When enabled, you can use your terminal without a prefix.",
+		Description: "Toggle interactive mode. When enabled, you can use your terminal without a prefix.",
 	}
 	commands["autosubmit"] = &discordgo.ApplicationCommand{
 		Type:        discordgo.ChatApplicationCommand,
 		Name:        "autosubmit",
-		Description: "Enable or disable autosubmit mode. When enabled, the bot will automatically do an Enter keypress.",
+		Description: "Toggle auto submit mode. When enabled, the bot will treat your messages as a command.",
 	}
 
 	for _, c := range commands {
