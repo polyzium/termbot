@@ -1,3 +1,6 @@
+token: YOUR_TOKEN_HERE
+prefix: $
+ownerid: "YOUR_USERID_HERE"
 macros:
     - name: example
       in: Here's an example macro.
@@ -8,3 +11,5 @@ userprefs:
         defaultsharedusers:
             - "216836179415269376"
         color: false
+        interactive: true
+        autosubmit: true
