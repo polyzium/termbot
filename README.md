@@ -1,7 +1,7 @@
 <h1 align="center">
     Termbot
 </h1>
-<p align="center">A fully fledged terminal emulator in a Discord chat, inspired by <a href="https://google.com/">BashBot</a></p>
+<p align="center">A fully fledged terminal emulator in a Discord chat, inspired by <a href="https://github.com/Adikso/BashBot">BashBot</a></p>
 
 <p align="center">
     <img src="https://img.shields.io/github/stars/polyzium/termbot.svg?style=for-the-badge&colorB=E8BE5D" alt="Stars" />
