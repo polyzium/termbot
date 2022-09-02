@@ -171,8 +171,8 @@ func NewTerminalBot() *Bot {
 	this.RegisterCommands()
 
 	for uid := range this.Config.UserPrefs {
-		u, _ := this.Session.User(uid)
-		log.Println("Loaded preferences for " + u.String())
+		// u, _ := this.Session.User(uid)
+		log.Println("Loaded preferences for " + uid)
 	}
 
 	return &this
