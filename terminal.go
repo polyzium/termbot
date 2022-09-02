@@ -169,9 +169,8 @@ var (
 )
 
 type DiscordTerminal struct {
-	ID                 int
-	Running            bool
-	ScheduledForUpdate bool
+	ID      int
+	Running bool
 
 	Bot *Bot
 
@@ -336,7 +335,7 @@ func (bot *Bot) Macro(i *discordgo.Interaction, name string) {
 			return
 		}
 	}
-	bot.RespondError(i, "No such macro")
+	bot.RespondString(i, "No such macro")
 }
 
 func (term *DiscordTerminal) PTYUpdater() {
@@ -362,7 +361,7 @@ func (term *DiscordTerminal) PTYUpdater() {
 
 func (term *DiscordTerminal) ScreenUpdater() {
 	for term.Running {
-		if term.CurrentScreen != term.LastScreen || term.ScheduledForUpdate {
+		if term.CurrentScreen != term.LastScreen {
 			// term.Msg, err = term.Bot.Session.ChannelMessageEdit(term.Msg.ChannelID, term.Msg.ID, "```\n"+term.CurrentScreen+"```")
 			msgcontent := "```ansi\n" + term.CurrentScreen + "```"
 			err2k := "Oops! Looks like you've reached Discord's 2000 character limit.\nDon't worry, your terminal is still running.\n\nTry disabling colors, and it'll be back."
@@ -390,7 +389,6 @@ func (term *DiscordTerminal) ScreenUpdater() {
 				term.Msg = newmsg
 			}
 			term.LastScreen = term.CurrentScreen
-			term.ScheduledForUpdate = false
 		}
 		time.Sleep(2 * time.Second)
 	}

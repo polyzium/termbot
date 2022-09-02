@@ -39,11 +39,11 @@ type Bot struct {
 	Terminals []*DiscordTerminal
 }
 
-func (bot *Bot) RespondError(i *discordgo.Interaction, err string) {
+func (bot *Bot) RespondString(i *discordgo.Interaction, msg string) {
 	bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: err,
+			Content: msg,
 			Flags:   uint64(discordgo.MessageFlagsEphemeral),
 		},
 	})

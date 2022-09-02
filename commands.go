@@ -172,7 +172,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 			bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers = append(bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.SharedUsers, user.ID)
 		} else if defaultv {
 			if slices.Contains(bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers, user.ID) {
-				bot.RespondError(i.Interaction, "Already shared!")
+				bot.RespondString(i.Interaction, "Already shared!")
 				return
 			} else {
 				bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers = append(bot.Config.UserPrefs[i.Member.User.ID].DefaultSharedUsers, user.ID)
@@ -187,7 +187,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 				return
 			}
 		} else {
-			bot.RespondError(i.Interaction, "You are not allowed to share someone else's session")
+			bot.RespondString(i.Interaction, "You are not allowed to share someone else's session")
 			return
 		}
 		if defaultv {
@@ -210,7 +210,12 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 	case "color":
 		bot.Config.UserPrefs[i.Member.User.ID].Color = !bot.Config.UserPrefs[i.Member.User.ID].Color
 		if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession != nil {
-			bot.Config.UserPrefs[i.Member.User.ID].ActiveSession.ScheduledForUpdate = true
+			term := bot.Config.UserPrefs[i.Member.User.ID].ActiveSession
+			if bot.Config.UserPrefs[term.Owner.ID].Color {
+				term.CurrentScreen = StringANSI(term.Term)
+			} else {
+				term.CurrentScreen = term.Term.String()
+			}
 		}
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -276,7 +281,7 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 						Embed:      t.Embed(),
 					})
 				} else {
-					bot.RespondError(i.Interaction, "You are not allowed to take control of this session")
+					bot.RespondString(i.Interaction, "You are not allowed to take control of this session")
 				}
 				return
 			}
@@ -290,7 +295,7 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 						bot.Config.UserPrefs[i.Member.User.ID].ActiveSession = nil
 					}
 				} else {
-					bot.RespondError(i.Interaction, "You are not allowed to take control of this session")
+					bot.RespondString(i.Interaction, "You are not allowed to take control of this session")
 				}
 				return
 			}
@@ -300,7 +305,6 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 			if t.Msg.ID == i.Message.ID {
 				if t.AllowedToControl(i.Member.User) {
 					bot.Config.UserPrefs[i.Member.User.ID].ActiveSession = t
-					t.ScheduledForUpdate = true
 					bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionResponseData{
@@ -309,7 +313,7 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 						},
 					})
 				} else {
-					bot.RespondError(i.Interaction, "You are not allowed to take control of this session")
+					bot.RespondString(i.Interaction, "You are not allowed to take control of this session")
 				}
 				return
 			}
