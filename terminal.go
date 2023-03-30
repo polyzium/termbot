@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"math"
@@ -263,42 +264,69 @@ func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
 	}
 	c.Env = os.Environ()
 
-	// cerr := c.Run()
-	out, _ := c.CombinedOutput()
-	/* if err != nil {
-		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	var outb bytes.Buffer
+	c.Stdout = &outb
+	c.Stderr = &outb
+
+	err := c.Start()
+	if err != nil {
+		bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "Error: " + err.Error(),
-				// Flags:           0,
-
+				Content: "Execution failed: " + err.Error(),
 			},
 		})
 		return
-	} */
-	// if cerr != nil {
-	// 	bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-	// 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-	// 		Data: &discordgo.InteractionResponseData{
-	// 			Content: "Execution error: " + err.Error(),
-	// 			// Flags:           0,
-
-	// 		},
-	// 	})
-	// }
-
+	}
 	bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "```ansi\n" + string(out) + "```",
-		},
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
-	/* 	_, err := bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
-	   		Content: "```ansi\n" + string(out) + "```",
-	   	})
-	   	if err != nil {
-	   		bot.Session.ChannelMessageSend(i.ChannelID, "Cannot edit an interaction response: "+err.Error())
-	   	} */
+
+	var exitCode int
+	if err := c.Wait(); err != nil {
+		if exiterr, ok := err.(*exec.ExitError); ok {
+			exitCode = exiterr.ExitCode()
+		} else {
+			bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
+				Content: "Error: " + err.Error(),
+			})
+		}
+	}
+
+	out := outb.Bytes()
+
+	var content string
+	if len(out) == 0 {
+		content = "Process provided no output"
+	} else {
+		content = "```ansi\n" + string(out) + "```"
+	}
+
+	if exitCode != 0 {
+		content += fmt.Sprintf("\nExit code: %d", exitCode)
+	}
+
+	/* bot.Session.InteractionRespond(i, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
+		},
+	}) */
+	_, err = bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
+		Content: content,
+	})
+	if err != nil {
+		if err.(*discordgo.RESTError).Message.Code == 50035 {
+			bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
+				Content: "Process' output is too long!",
+			})
+			return
+		}
+		bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
+			Content: "Discord gave us an error: " + err.Error(),
+		})
+		return
+	}
 }
 
 func (bot *Bot) Macro(i *discordgo.Interaction, name string) {
