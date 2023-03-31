@@ -65,8 +65,23 @@ Input | Key name
 [DEL] | Delete
 [PGUP] | Page Up
 [PGDN] | Page Down
-^[key] | CTRL + key (i.e. ^C = CTRL+C, etc)
+^[key] | Ctrl + key (i.e. ^C = Ctrl+C, etc)
 
+## Alt Key Combinations
+In addition to the regular key inputs, you can also use Alt key combinations. Alt keys are represented by the escape character \x1b followed by your desired key. To find the codes for your Alt key combinations, you can use the showkey -a command in your terminal.  
+For example, if you press Alt-T or Alt-A, you'll get the following codes:
+
+```
+Press any keys - Ctrl-D will terminate this program
+
+^[t      27 0033 0x1b
+        116 0164 0x74
+^[a      27 0033 0x1b
+         97 0141 0x61
+```
+
+The ^[ represents the ESC key, or the escape character (\x1b). As you can see, it is followed by your desired key. To input Alt key combinations, simply type [ESC]&lt;your character&gt;, replacing &lt;your character&gt; with the key you want to emulate the Alt keypress with.  
+For example, to input Alt-T, you need to type [ESC]t.
 ## Configuration
 The configuration values are located in the config.yaml file. The keys should be pretty self explanatory.  
 

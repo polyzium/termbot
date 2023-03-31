@@ -392,7 +392,7 @@ func (term *DiscordTerminal) ScreenUpdater() {
 		if term.CurrentScreen != term.LastScreen {
 			// term.Msg, err = term.Bot.Session.ChannelMessageEdit(term.Msg.ChannelID, term.Msg.ID, "```\n"+term.CurrentScreen+"```")
 			msgcontent := "```ansi\n" + term.CurrentScreen + "```"
-			err2k := "Oops! Looks like you've reached Discord's 2000 character limit.\nDon't worry, your terminal is still running.\n\nTry disabling colors, and it'll be back."
+			err2k := "Oops! You've hit Discord's 2000 character limit.\nYour terminal is still running though.\n\nTry turning off colors to fix it."
 			var newmsg *discordgo.Message
 			newmsg, err := term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
 				Content:    &msgcontent,
