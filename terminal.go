@@ -222,33 +222,39 @@ func StringANSI(t vt10x.Terminal) string {
 
 	var view []rune
 	cols, rows := t.Size()
-	var prevcolorfg vt10x.Color = 0
-	var prevcolorbg vt10x.Color = 0
+	var prevcell vt10x.Glyph
+
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
-			attr := t.Cell(x, y)
-			if attr.FG != prevcolorfg {
-				if attr.FG == vt10x.DefaultFG {
+			cell := t.Cell(x, y)
+
+			if cell.FG != prevcell.FG {
+				if cell.FG == vt10x.DefaultFG {
 					view = append(view, []rune("\x1b[39m")...)
+				} else if cell.FG == vt10x.DefaultBG {
+					view = append(view, []rune("\x1b[30m")...)
 				} else {
-					view = append(view, []rune(fmt.Sprintf("\x1b[%dm", 30+attr.FG%8))...)
+					view = append(view, []rune(fmt.Sprintf("\x1b[%dm", 30+cell.FG%8))...)
 				}
 			}
-			if attr.BG != prevcolorbg {
-				if attr.BG == vt10x.DefaultBG {
+			if cell.BG != prevcell.BG {
+				if cell.BG == vt10x.DefaultBG {
 					view = append(view, []rune("\x1b[49m")...)
+				} else if cell.BG == vt10x.DefaultFG {
+					view = append(view, []rune("\x1b[47m")...)
 				} else {
-					view = append(view, []rune(fmt.Sprintf("\x1b[%dm", 40+attr.BG%8))...)
+					view = append(view, []rune(fmt.Sprintf("\x1b[%dm", 40+cell.BG%8))...)
 				}
 			}
-			view = append(view, attr.Char)
-			prevcolorfg = attr.FG
-			prevcolorbg = attr.BG
+			view = append(view, cell.Char)
+			prevcell = cell
 		}
 		view = append(view, '\n')
 	}
 
+	// Truncate spaces at the end
 	view = []rune(regexp.MustCompile("(?m) +$").ReplaceAllString(string(view), ""))
+	// Replace 4 spaces with tabs
 	view = []rune(strings.ReplaceAll(string(view), "    ", "\t"))
 
 	return string(view)
