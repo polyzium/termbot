@@ -98,7 +98,8 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 
 	switch data.Name {
 	case "open":
-		if !(i.Member.User.ID == bot.Config.OwnerID || i.Member.User.ID == "684471165884039243" || i.Member.User.ID == "216836179415269376") {
+		canOpen := bot.Config.UserPrefs[i.Member.User.ID].CanOpen
+		if !(canOpen) {
 			bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{

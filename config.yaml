@@ -8,6 +8,7 @@ macros:
       allowedids: []
 userprefs:
     "552930095141224479":
+        canopen: true
         defaultsharedusers:
             - "216836179415269376"
         color: false

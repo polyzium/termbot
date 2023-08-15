@@ -12,6 +12,7 @@ import (
 type Prefs struct {
 	ActiveSession *DiscordTerminal `yaml:"-"`
 
+	CanOpen            bool     `yaml:"canopen"`
 	DefaultSharedUsers []string `yaml:"defaultsharedusers"`
 	Color              bool     `yaml:"color"`
 	Interactive        bool     `yaml:"interactive"`
@@ -53,6 +54,7 @@ func (bot *Bot) CreatePrefIfNotExistsFor(user *discordgo.User) {
 	if _, ok := bot.Config.UserPrefs[user.ID]; !ok {
 		bot.Config.UserPrefs[user.ID] = &Prefs{
 			ActiveSession:      nil,
+			CanOpen:            false,
 			DefaultSharedUsers: []string{},
 			Color:              false,
 			Interactive:        false,
