@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -169,6 +170,11 @@ var (
 	}
 )
 
+type SafeTerm struct {
+	Mutex sync.Mutex
+	Term  vt10x.Terminal
+}
+
 type DiscordTerminal struct {
 	ID      int
 	Running bool
@@ -181,7 +187,7 @@ type DiscordTerminal struct {
 
 	Msg           *discordgo.Message
 	Pty           *os.File
-	Term          vt10x.Terminal
+	SafeTerm      SafeTerm
 	CurrentScreen string
 	LastScreen    string
 }
@@ -381,12 +387,14 @@ func (term *DiscordTerminal) PTYUpdater() {
 			term.Running = false
 			return
 		}
-		term.Term.Write(data)
+		term.SafeTerm.Mutex.Lock()
+		term.SafeTerm.Term.Write(data)
 		if term.Bot.Config.UserPrefs[term.Owner.ID].Color {
-			term.CurrentScreen = StringANSI(term.Term)
+			term.CurrentScreen = StringANSI(term.SafeTerm.Term)
 		} else {
-			term.CurrentScreen = term.Term.String()
+			term.CurrentScreen = term.SafeTerm.Term.String()
 		}
+		term.SafeTerm.Mutex.Unlock()
 		/* if bytes.Contains(data, []byte("\a")) { // Check for \a aka \x07 (BEL)
 			term.Bot.Session.ChannelMessageSend(term.Msg.ChannelID, fmt.Sprintf("<@%s> BEL", term.Owner.ID))
 		} */
@@ -455,10 +463,13 @@ func (term *DiscordTerminal) FormatControlledBy() string {
 }
 
 func (term *DiscordTerminal) Embed() *discordgo.MessageEmbed {
+	term.SafeTerm.Mutex.Lock()
+	title := term.SafeTerm.Term.Title()
+	term.SafeTerm.Mutex.Unlock()
 	return &discordgo.MessageEmbed{
 		Type:        discordgo.EmbedTypeRich,
 		Title:       "Session ID " + fmt.Sprint(term.ID),
-		Description: term.Term.Title(),
+		Description: title,
 		Color:       0x00FFFF,
 		Fields: []*discordgo.MessageEmbedField{
 			{
@@ -479,7 +490,11 @@ func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	var err error
 	this := &DiscordTerminal{Bot: bot, Owner: owner, CloseSignal: make(chan bool), SharedUsers: bot.Config.UserPrefs[owner.ID].DefaultSharedUsers, ID: int(math.Floor(100000 + rand.Float64()*900000))}
 
-	this.Term = vt10x.New(vt10x.WithSize(W, H))
+	// this.Term = vt10x.New(vt10x.WithSize(W, H))
+	this.SafeTerm = SafeTerm{
+		Term: vt10x.New(vt10x.WithSize(W, H)),
+	}
+	this.SafeTerm.Mutex.Lock()
 	c := exec.Command(os.Getenv("SHELL"))
 	c.Env = os.Environ()
 	c.Env = append(c.Env, "TERM=vt100")
@@ -488,6 +503,7 @@ func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 		this.Bot.Session.ChannelMessageSend(cid, "Cannot start terminal: "+err.Error())
 		return
 	}
+	this.SafeTerm.Mutex.Unlock()
 
 	this.Msg, err = this.Bot.Session.ChannelMessageSendComplex(cid, &discordgo.MessageSend{
 		Content:    "Waiting for pty...",

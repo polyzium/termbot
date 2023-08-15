@@ -211,11 +211,13 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 		bot.Config.UserPrefs[i.Member.User.ID].Color = !bot.Config.UserPrefs[i.Member.User.ID].Color
 		if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession != nil {
 			term := bot.Config.UserPrefs[i.Member.User.ID].ActiveSession
+			term.SafeTerm.Mutex.Lock()
 			if bot.Config.UserPrefs[term.Owner.ID].Color {
-				term.CurrentScreen = StringANSI(term.Term)
+				term.CurrentScreen = StringANSI(term.SafeTerm.Term)
 			} else {
-				term.CurrentScreen = term.Term.String()
+				term.CurrentScreen = term.SafeTerm.Term.String()
 			}
+			term.SafeTerm.Mutex.Unlock()
 		}
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
