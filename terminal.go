@@ -170,6 +170,8 @@ var (
 	}
 )
 
+const UPDATE_INTERVAL = 2 * time.Second
+
 type SafeTerm struct {
 	Mutex sync.Mutex
 	Term  vt10x.Terminal
@@ -183,8 +185,11 @@ type DiscordTerminal struct {
 
 	Owner       *discordgo.User
 	SharedUsers []string
-	CloseSignal chan bool
+	Color       bool
 
+	Ticker        *time.Ticker
+	CloseSignal   chan bool
+	UpdateSignal  chan bool // true if manual, false if ticker
 	Msg           *discordgo.Message
 	Pty           *os.File
 	SafeTerm      SafeTerm
@@ -389,7 +394,7 @@ func (term *DiscordTerminal) PTYUpdater() {
 		}
 		term.SafeTerm.Mutex.Lock()
 		term.SafeTerm.Term.Write(data)
-		if term.Bot.Config.UserPrefs[term.Owner.ID].Color {
+		if term.Color {
 			term.CurrentScreen = StringANSI(term.SafeTerm.Term)
 		} else {
 			term.CurrentScreen = term.SafeTerm.Term.String()
@@ -401,6 +406,18 @@ func (term *DiscordTerminal) PTYUpdater() {
 	}
 }
 
+func (term *DiscordTerminal) Update() {
+	term.Ticker.Reset(UPDATE_INTERVAL)
+	term.UpdateSignal <- true
+}
+
+func (term *DiscordTerminal) TickerTracker() {
+	for term.Running {
+		<-term.Ticker.C
+		term.UpdateSignal <- false
+	}
+}
+
 func (term *DiscordTerminal) ScreenUpdater() {
 	for term.Running {
 		if term.CurrentScreen != term.LastScreen {
@@ -408,17 +425,21 @@ func (term *DiscordTerminal) ScreenUpdater() {
 			msgcontent := "```ansi\n" + term.CurrentScreen + "```"
 			err2k := "Oops! You've hit Discord's 2000 character limit.\nYour terminal is still running though.\n\nTry turning off colors to fix it."
 			var newmsg *discordgo.Message
+
+			eButtons := term.Buttons()
+
 			newmsg, err := term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
 				Content:    &msgcontent,
-				Components: buttons,
+				Components: eButtons,
 				Embed:      term.Embed(),
 				ID:         term.Msg.ID,
 				Channel:    term.Msg.ChannelID,
 			})
 			if err != nil {
+				log.Printf("Session %d: screen updater error: %s", term.ID, err)
 				newmsg, err = term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
 					Content:    &err2k,
-					Components: buttons,
+					Components: eButtons,
 					Embed:      term.Embed(),
 					ID:         term.Msg.ID,
 					Channel:    term.Msg.ChannelID,
@@ -432,7 +453,8 @@ func (term *DiscordTerminal) ScreenUpdater() {
 			}
 			term.LastScreen = term.CurrentScreen
 		}
-		time.Sleep(2 * time.Second)
+		// time.Sleep(2 * time.Second)
+		<-term.UpdateSignal
 	}
 }
 
@@ -486,9 +508,49 @@ func (term *DiscordTerminal) Embed() *discordgo.MessageEmbed {
 	}
 }
 
+func (term *DiscordTerminal) Buttons() []discordgo.MessageComponent {
+	// Copy base non-stateful buttons
+	buttonsClone := slices.Clone(buttons[0].(*discordgo.ActionsRow).Components)
+
+	// Make a stateful color button
+	var colorStatus string
+	if term.Color {
+		colorStatus = "on"
+	} else {
+		colorStatus = "off"
+	}
+	colorButton := discordgo.Button{
+		Label:    "Color: " + colorStatus,
+		Style:    discordgo.SecondaryButton,
+		Disabled: false,
+		CustomID: "color",
+	}
+
+	// Copy close button (it must be last)
+	closeButton := *(buttonsClone[2].(*discordgo.Button))
+	// Replace last button with color
+	buttonsClone[2] = &colorButton
+	// Add close button back
+	buttonsClone = append(buttonsClone, &closeButton)
+
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: buttonsClone,
+		},
+	}
+}
+
 func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	var err error
-	this := &DiscordTerminal{Bot: bot, Owner: owner, CloseSignal: make(chan bool), SharedUsers: bot.Config.UserPrefs[owner.ID].DefaultSharedUsers, ID: int(math.Floor(100000 + rand.Float64()*900000))}
+	this := &DiscordTerminal{
+		Bot:          bot,
+		Owner:        owner,
+		CloseSignal:  make(chan bool),
+		SharedUsers:  bot.Config.UserPrefs[owner.ID].DefaultSharedUsers,
+		ID:           int(math.Floor(100000 + rand.Float64()*900000)),
+		Ticker:       time.NewTicker(UPDATE_INTERVAL),
+		UpdateSignal: make(chan bool),
+	}
 
 	// this.Term = vt10x.New(vt10x.WithSize(W, H))
 	this.SafeTerm = SafeTerm{
@@ -507,7 +569,7 @@ func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 
 	this.Msg, err = this.Bot.Session.ChannelMessageSendComplex(cid, &discordgo.MessageSend{
 		Content:    "Waiting for pty...",
-		Components: buttons,
+		Components: this.Buttons(),
 		Embed:      this.Embed(),
 	})
 	if err != nil {
@@ -520,6 +582,7 @@ func NewDiscordTerminal(bot *Bot, cid string, owner *discordgo.User) {
 	bot.Config.UserPrefs[owner.ID].ActiveSession = this
 
 	go this.PTYUpdater()
+	go this.TickerTracker()
 	this.ScreenUpdater()
 
 	idx := slices.IndexFunc(bot.Terminals, func(t *DiscordTerminal) bool { return t == this })

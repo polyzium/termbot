@@ -67,11 +67,6 @@ func (bot *Bot) RegisterCommands() {
 			},
 		},
 	}
-	commands["color"] = &discordgo.ApplicationCommand{
-		Type:        discordgo.ChatApplicationCommand,
-		Name:        "color",
-		Description: "EXPERIMENTAL! Toggle color. Don't forget to set your $TERM!",
-	}
 	commands["interactive"] = &discordgo.ApplicationCommand{
 		Type:        discordgo.ChatApplicationCommand,
 		Name:        "interactive",
@@ -81,6 +76,21 @@ func (bot *Bot) RegisterCommands() {
 		Type:        discordgo.ChatApplicationCommand,
 		Name:        "autosubmit",
 		Description: "Toggle auto submit mode. When enabled, the bot will treat your messages as a command.",
+	}
+
+	// Remove redundant/old commands
+	botCommands, err := bot.Session.ApplicationCommands(bot.Session.State.User.ID, "")
+	if err != nil {
+		panic(err)
+	}
+	for _, bc := range botCommands {
+		if _, ok := commands[bc.Name]; !ok {
+			err := bot.Session.ApplicationCommandDelete(bot.Session.State.User.ID, "", bc.ID)
+			log.Printf("Removing old command %s", bc.Name)
+			if err != nil {
+				log.Panicf("Cannot remove old application command: %v", err)
+			}
+		}
 	}
 
 	for _, c := range commands {
@@ -208,32 +218,6 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 				// Flags: uint64(discordgo.MessageFlagsEphemeral),
 			},
 		})
-	case "color":
-		bot.Config.UserPrefs[i.Member.User.ID].Color = !bot.Config.UserPrefs[i.Member.User.ID].Color
-		if bot.Config.UserPrefs[i.Member.User.ID].ActiveSession != nil {
-			term := bot.Config.UserPrefs[i.Member.User.ID].ActiveSession
-			term.SafeTerm.Mutex.Lock()
-			if bot.Config.UserPrefs[term.Owner.ID].Color {
-				term.CurrentScreen = StringANSI(term.SafeTerm.Term)
-			} else {
-				term.CurrentScreen = term.SafeTerm.Term.String()
-			}
-			term.SafeTerm.Mutex.Unlock()
-		}
-		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				// Sucks that there's no ternary operator in Go
-				Content: "Color display has been " + func(a bool) string {
-					if a {
-						return "en"
-					} else {
-						return "dis"
-					}
-				}(bot.Config.UserPrefs[i.Member.User.ID].Color) + "abled",
-				Flags: uint64(discordgo.MessageFlagsEphemeral),
-			},
-		})
 	case "interactive":
 		bot.Config.UserPrefs[i.Member.User.ID].Interactive = !bot.Config.UserPrefs[i.Member.User.ID].Interactive
 		bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -314,6 +298,31 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 							Content: "Set session ID " + fmt.Sprint(t.ID) + " as active",
 							Flags:   uint64(discordgo.MessageFlagsEphemeral),
 						},
+					})
+				} else {
+					bot.RespondString(i.Interaction, "You are not allowed to take control of this session")
+				}
+				return
+			}
+		}
+	case "color":
+		for _, t := range bot.Terminals {
+			if t.Msg.ID == i.Message.ID {
+				if t.AllowedToControl(i.Member.User) {
+					t.Color = !t.Color
+					t.SafeTerm.Mutex.Lock()
+					if t.Color {
+						t.CurrentScreen = StringANSI(t.SafeTerm.Term)
+					} else {
+						t.CurrentScreen = t.SafeTerm.Term.String()
+					}
+					t.SafeTerm.Mutex.Unlock()
+
+					t.Update()
+
+					bot.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseDeferredMessageUpdate,
+						Data: &discordgo.InteractionResponseData{},
 					})
 				} else {
 					bot.RespondString(i.Interaction, "You are not allowed to take control of this session")

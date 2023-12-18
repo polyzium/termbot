@@ -14,7 +14,6 @@ type Prefs struct {
 
 	CanOpen            bool     `yaml:"canopen"`
 	DefaultSharedUsers []string `yaml:"defaultsharedusers"`
-	Color              bool     `yaml:"color"`
 	Interactive        bool     `yaml:"interactive"`
 	AutoSubmit         bool     `yaml:"autosubmit"`
 }
@@ -56,7 +55,6 @@ func (bot *Bot) CreatePrefIfNotExistsFor(user *discordgo.User) {
 			ActiveSession:      nil,
 			CanOpen:            false,
 			DefaultSharedUsers: []string{},
-			Color:              false,
 			Interactive:        false,
 			AutoSubmit:         false,
 		}
