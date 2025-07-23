@@ -114,7 +114,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					Content: "Insufficient permissions",
-					Flags:   uint64(discordgo.MessageFlagsEphemeral),
+					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
 			return
@@ -124,7 +124,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "OK",
-				Flags:   uint64(discordgo.MessageFlagsEphemeral),
+				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		NewDiscordTerminal(bot, i.ChannelID, i.Member.User)
@@ -153,7 +153,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "Please wait",
-				// Flags:   uint64(discordgo.MessageFlagsEphemeral),
+				// Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		}) */
 		bot.Exec(i.Interaction, cmd, args)
@@ -175,7 +175,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					Content: "You don't have an active session!",
-					Flags:   uint64(discordgo.MessageFlagsEphemeral),
+					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
 			return
@@ -192,7 +192,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "You have allowed " + user.Mention() + " to control your future sessions",
-						// Flags:   uint64(discordgo.MessageFlagsEphemeral),
+						// Flags:   discordgo.MessageFlagsEphemeral,
 					},
 				})
 				return
@@ -215,7 +215,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 						return "current session"
 					}
 				}(defaultv),
-				// Flags: uint64(discordgo.MessageFlagsEphemeral),
+				// Flags: discordgo.MessageFlagsEphemeral,
 			},
 		})
 	case "interactive":
@@ -231,7 +231,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 						return "dis"
 					}
 				}(bot.Config.UserPrefs[i.Member.User.ID].Interactive) + "abled",
-				Flags: uint64(discordgo.MessageFlagsEphemeral),
+				Flags: discordgo.MessageFlagsEphemeral,
 			},
 		})
 	case "autosubmit":
@@ -247,7 +247,7 @@ func (bot *Bot) CommandHandler(i *discordgo.InteractionCreate) {
 						return "dis"
 					}
 				}(bot.Config.UserPrefs[i.Member.User.ID].AutoSubmit) + "abled",
-				Flags: uint64(discordgo.MessageFlagsEphemeral),
+				Flags: discordgo.MessageFlagsEphemeral,
 			},
 		})
 	}
@@ -296,7 +296,7 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionResponseData{
 							Content: "Set session ID " + fmt.Sprint(t.ID) + " as active",
-							Flags:   uint64(discordgo.MessageFlagsEphemeral),
+							Flags:   discordgo.MessageFlagsEphemeral,
 						},
 					})
 				} else {
@@ -353,7 +353,7 @@ func (bot *Bot) ComponentHandler(i *discordgo.InteractionCreate) {
 			Data: &discordgo.InteractionResponseData{
 				Content:    "Note: you can also use these keys in the prefixed input by putting them in square brackets (with a few exceptions).\nSee TODO LINK for more details.",
 				Components: components,
-				Flags:      uint64(discordgo.MessageFlagsEphemeral),
+				Flags:      discordgo.MessageFlagsEphemeral,
 			},
 		})
 		if err != nil {

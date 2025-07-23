@@ -44,7 +44,7 @@ func (bot *Bot) RespondString(i *discordgo.Interaction, msg string) {
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: msg,
-			Flags:   uint64(discordgo.MessageFlagsEphemeral),
+			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
 }

@@ -213,6 +213,55 @@ type Key struct {
 	OutSeq string
 }
 
+// ParseShellArgs parses a string into shell-like arguments, handling quotes properly
+func ParseShellArgs(input string) []string {
+	var args []string
+	var current strings.Builder
+	var inQuotes bool
+	var quoteChar rune
+
+	runes := []rune(input)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+
+		switch {
+		case !inQuotes && (r == '"' || r == '\''):
+			// Start of quoted string
+			inQuotes = true
+			quoteChar = r
+		case inQuotes && r == quoteChar:
+			// End of quoted string
+			inQuotes = false
+			quoteChar = 0
+		case !inQuotes && r == ' ':
+			// Space outside quotes - end current argument
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+		case inQuotes && r == '\\' && i+1 < len(runes):
+			// Handle escape sequences inside quotes
+			next := runes[i+1]
+			if next == quoteChar || next == '\\' {
+				current.WriteRune(next)
+				i++ // Skip the next character since we processed it
+			} else {
+				current.WriteRune(r)
+			}
+		default:
+			// Regular character
+			current.WriteRune(r)
+		}
+	}
+
+	// Add the last argument if there is one
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+
+	return args
+}
+
 func ParseSequences(ins string) string {
 	// ^D, ^C, ^Z, etc...
 	match := regexp.MustCompile(`\^([A-Z])`).FindAllStringSubmatch(ins, -1)
@@ -274,7 +323,7 @@ func StringANSI(t vt10x.Terminal) string {
 func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
 	var c *exec.Cmd
 	if args != "" {
-		aargs := strings.Split(args, " ")
+		aargs := ParseShellArgs(args)
 		c = exec.Command(cmd, aargs...)
 	} else {
 		c = exec.Command(cmd)
@@ -304,8 +353,9 @@ func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			exitCode = exiterr.ExitCode()
 		} else {
+			errMsg := "Error: " + err.Error()
 			bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
-				Content: "Error: " + err.Error(),
+				Content: &errMsg,
 			})
 		}
 	}
@@ -330,17 +380,19 @@ func (bot *Bot) Exec(i *discordgo.Interaction, cmd string, args string) {
 		},
 	}) */
 	_, err = bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
-		Content: content,
+		Content: &content,
 	})
 	if err != nil {
 		if err.(*discordgo.RESTError).Message.Code == 50035 {
+			errMsg := "Process' output is too long!"
 			bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
-				Content: "Process' output is too long!",
+				Content: &errMsg,
 			})
 			return
 		}
+		errMsg := "Discord gave us an error: " + err.Error()
 		bot.Session.InteractionResponseEdit(i, &discordgo.WebhookEdit{
-			Content: "Discord gave us an error: " + err.Error(),
+			Content: &errMsg,
 		})
 		return
 	}
@@ -352,7 +404,7 @@ func (bot *Bot) Macro(i *discordgo.Interaction, name string) {
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "You don't have an active session!",
-				Flags:   uint64(discordgo.MessageFlagsEphemeral),
+				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
@@ -365,7 +417,7 @@ func (bot *Bot) Macro(i *discordgo.Interaction, name string) {
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "Executed macro " + m.Name,
-						Flags:   uint64(discordgo.MessageFlagsEphemeral),
+						Flags:   discordgo.MessageFlagsEphemeral,
 					},
 				})
 			} else {
@@ -373,7 +425,7 @@ func (bot *Bot) Macro(i *discordgo.Interaction, name string) {
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "You cannot use this macro!",
-						Flags:   uint64(discordgo.MessageFlagsEphemeral),
+						Flags:   discordgo.MessageFlagsEphemeral,
 					},
 				})
 			}
@@ -430,7 +482,7 @@ func (term *DiscordTerminal) ScreenUpdater() {
 
 			newmsg, err := term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
 				Content:    &msgcontent,
-				Components: eButtons,
+				Components: &eButtons,
 				Embed:      term.Embed(),
 				ID:         term.Msg.ID,
 				Channel:    term.Msg.ChannelID,
@@ -439,7 +491,7 @@ func (term *DiscordTerminal) ScreenUpdater() {
 				log.Printf("Session %d: screen updater error: %s", term.ID, err)
 				newmsg, err = term.Bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
 					Content:    &err2k,
-					Components: eButtons,
+					Components: &eButtons,
 					Embed:      term.Embed(),
 					ID:         term.Msg.ID,
 					Channel:    term.Msg.ChannelID,
